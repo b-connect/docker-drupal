@@ -27,6 +27,11 @@ RUN apt-get clean
 RUN curl -sS https://getcomposer.org/installer | php
 RUN mv composer.phar /usr/local/bin/composer
 
+RUN curl https://drupalconsole.com/installer -L -o drupal.phar
+RUN mv drupal.phar /usr/local/bin/drupal
+RUN chmod +x /usr/local/bin/drupal
+RUN composer global require 'halleck45/phpmetrics'
+
 # Install Drush 7.
 RUN composer global require drush/drush:7.*
 RUN composer global update
