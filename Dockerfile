@@ -1,44 +1,63 @@
-FROM centos:latest
-MAINTAINER Erik Seifert <erik.seifert@b-connect.de>
+FROM debian:jessie
+MAINTAINER Wouter Admiraal <wad@wadmiraal.net>
+ENV DEBIAN_FRONTEND noninteractive
+RUN rm /bin/sh && ln -s /bin/bash /bin/sh
 
-# - Install basic packages needed by supervisord
-# - Install inotify, needed to automate daemon restarts after config file changes
-# - Install supervisord (via python's easy_install - as it has the newest 3.x version)
+# Install packages.
+RUN apt-get update
+RUN apt-get install -y \
+	vim \
+	git \
+	apache2 \
+	php5-cli \
+	php5-mysql \
+	php5-gd \
+	php5-curl \
+	php5-xdebug \
+	libapache2-mod-php5 \
+	curl \
+	mysql-server \
+	mysql-client \
+	openssh-server \
+	phpmyadmin \
+	wget \
+	supervisor
+RUN apt-get clean
 
-#Install tools
-RUN yum install -y yum-utils python-setuptools inotify-tools unzip sendmail tar mysql sudo wget telnet rsync git
+# Install Composer.
+RUN curl -sS https://getcomposer.org/installer | php
+RUN mv composer.phar /usr/local/bin/composer
 
-RUN rpm -Uvh https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
-RUN rpm -Uvh https://mirror.webtatic.com/yum/el7/webtatic-release.rpm
+# Install Drush 7.
+RUN composer global require drush/drush:7.*
+RUN composer global update
+# Unfortunately, adding the composer vendor dir to the PATH doesn't seem to work. So:
+RUN ln -s /root/.composer/vendor/bin/drush /usr/local/bin/drush
 
-RUN yum install -y nginx
+# Install Drupal Console.
+RUN curl http://drupalconsole.com/installer -L -o drupal.phar
+RUN mv drupal.phar /usr/local/bin/drupal && chmod +x /usr/local/bin/drupal
+RUN drupal init
 
-#Install nginx, php70w-fpm and php extensions
-RUN yum install -y php70w-fpm php70w-common memcached
-RUN yum install -y php70w-pecl-apc php70w-cli php70w-pear php70w-pdo php70w-mysql php70w-pecl-memcache php70w-pecl-memcached php70w-gd php70w-mbstring php70w-mcrypt php70w-xml php70w-adodb php70w-imap php70w-intl php70w-soap
-RUN yum install -y php70w-mysqli php70w-zip php70w-iconv php70w-curl php70w-simplexml php70w-dom php70w-bcmath php70w-opcache php70w-pecl-redis
+# Setup PHP.
+RUN sed -i 's/display_errors = Off/display_errors = On/' /etc/php5/apache2/php.ini
+RUN sed -i 's/display_errors = Off/display_errors = On/' /etc/php5/cli/php.ini
 
-#Clean up yum repos to save spaces
-RUN yum update -y && yum clean all
 
-#Install supervisor
-RUN easy_install supervisor
-#Install composer
-RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+# Setup Apache.
+# In order to run our Simpletest tests, we need to make Apache
+# listen on the same port as the one we forwarded. Because we use
+# 8080 by default, we set it up for that port.
+RUN sed -i 's/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
+RUN sed -i 's/DocumentRoot \/var\/www\/html/DocumentRoot \/var\/www/' /etc/apache2/sites-available/000-default.conf
+RUN echo "Listen 8080" >> /etc/apache2/ports.conf
+RUN sed -i 's/VirtualHost \*:80/VirtualHost \*:\*/' /etc/apache2/sites-available/000-default.conf
+RUN a2enmod rewrite
 
-#Update nginx user group and name
-RUN groupmod --gid 80 --new-name www nginx && \
-    usermod --uid 80 --home /data/www --gid 80 --login www --shell /bin/bash --comment www nginx && \
-    rm -rf /etc/nginx/*.d /etc/nginx/*_params && \
-    chown -R www:www /var/www
-    #lib/nginx
+# Setup MySQL, bind on all addresses.
+RUN sed -i -e 's/^bind-address\s*=\s*127.0.0.1/#bind-address = 127.0.0.1/' /etc/mysql/my.cnf
 
-#Add pre-configured files
-ADD container-files /
-RUN find /config |grep .sh |xargs chmod +x
+# Install Drupal.
 
-VOLUME ["/data"]
-
-EXPOSE 80 443
-
-ENTRYPOINT ["/config/bootstrap.sh"]
+RUN /etc/init.d/mysql start
+RUN /etc/init.d/apache2 start
