@@ -13,7 +13,6 @@ RUN apt-get install -y \
 	php5-mysql \
 	php5-gd \
 	php5-curl \
-	php5-xdebug \
 	libapache2-mod-php5 \
 	curl \
 	mysql-server \
